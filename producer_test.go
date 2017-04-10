@@ -13,7 +13,21 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"strings"
 )
+
+type TestLogger struct {
+  t *testing.T
+}
+func (tl TestLogger) Error(s string) { tl.t.Fatal(s) }
+func (tl TestLogger) Info(s string) { }
+func (tl TestLogger) Output(c int, s string) error {
+  if strings.Contains(s, "ERR") {
+    tl.t.Fatalf("error string: %s", s)
+  }
+  return nil
+}
+func NewTestLogger(t *testing.T) *TestLogger { return &TestLogger{t} }
 
 type ConsumerHandler struct {
 	t              *testing.T
@@ -87,22 +101,26 @@ func TestProducerPublish(t *testing.T) {
 	topicName := "publish" + strconv.Itoa(int(time.Now().Unix()))
 	msgCount := 10
 
-	config := NewConfig()
-	w, _ := NewProducer("127.0.0.1:4150", config)
-	w.SetLogger(nullLogger, LogLevelInfo)
-	defer w.Stop()
+	testLogger := NewTestLogger(t)
 
-	for i := 0; i < msgCount; i++ {
-		err := w.Publish(topicName, []byte("publish_test_case"))
+	config := NewConfig()
+	func() {
+		w, _ := NewProducer("127.0.0.1:4150", config)
+		w.SetLogger(testLogger, LogLevelInfo)
+		defer w.Stop()
+
+		for i := 0; i < msgCount; i++ {
+			err := w.Publish(topicName, []byte("publish_test_case"))
+			if err != nil {
+				t.Fatalf("error %s", err)
+			}
+		}
+
+		err := w.Publish(topicName, []byte("bad_test_case"))
 		if err != nil {
 			t.Fatalf("error %s", err)
 		}
-	}
-
-	err := w.Publish(topicName, []byte("bad_test_case"))
-	if err != nil {
-		t.Fatalf("error %s", err)
-	}
+	}()
 
 	readMessages(topicName, t, msgCount)
 }
